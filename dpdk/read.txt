@@ -1,0 +1,37 @@
+DPDK 
+
+UIO： 用户态网卡驱动, 轮询， 零拷贝
+HUGEPAGE: 提高内存访问性能
+CPU affinity： 线程绑定 CPU， 避免切换， 缓存失效
+
+内核接受数据包： 
+网卡 -> DMA 放到内存 -> 触发硬中断通知报文到达 -> 内核线程分配 sk_buf， copy 报文到 sk_buf -> 软中断协议栈处理 -> 通知应用层
+
+问题: 一个报文一个中断， 导致 CPU 频繁上下文切换； 分配 sk_buf 内存时空开销； 系统调用开销
+
+Network Controller <==> Linux kernel(Network Driver)  <==> Application
+
+Network Controller <==> Application(DPDK Libraries)
+
+DPDK 用户态： 
+    Core Libs: 大页内存 内存池 定时器 无锁环形队列 EAL（环境抽象层）
+    PMD： 用户态驱动
+    Classify: LPM ACL MATCH 数据包匹配
+    Extns： Packet Framework  KNI  Power ...
+
+DPDK 内核态： 
+    KNI  IGB_UIO  VFIO
+
+DPDK： 硬件中断 -> 放弃中断 
+      用户层通过设备映射获取数据 -> 用户态协议栈
+
+
+eth frame format:
+前导 | 帧首定界符 |eth dst addr | eth src addr | eth type | payload | crc
+
+帧转发率: (bit rate/8) / (IPG + SFD + PktSize + Preamble)
+
+DDIO: 降低报文转发延时， 提高吞吐量， 减少功耗, 减少内存操作 
+      NIC <==> PCI总线 <==> LLC(last level cache in CPU)  <== (预取) == 内存
+
+DPDK关键： EAL， 轮询驱动， 避免中断， Pipeline模型（异步）， RTC(Run2Complete)模型（同步)

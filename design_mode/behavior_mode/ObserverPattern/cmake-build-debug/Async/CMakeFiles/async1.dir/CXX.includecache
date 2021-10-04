@@ -1,0 +1,20 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/mnt/d/Documents/CLionProjects/ObserverPattern/Async/async1.cpp
+memory
+-
+list
+-
+algorithm
+-
+thread
+-
+fmt/ostream.h
+-
+

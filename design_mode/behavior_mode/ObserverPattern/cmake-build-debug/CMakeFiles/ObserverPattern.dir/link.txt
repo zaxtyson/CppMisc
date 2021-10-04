@@ -1,0 +1,1 @@
+/usr/bin/c++  -g   CMakeFiles/ObserverPattern.dir/main.cpp.o  -o ObserverPattern  -Wl,-rpath,/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/dist dist/libsync.so dist/libasync1.so -lfmt -lpthread 

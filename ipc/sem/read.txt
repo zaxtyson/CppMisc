@@ -1,0 +1,9 @@
+posix 信号量创建和初始化合二为一， 避免了 sysv 可能出现的 race condition
+posix 信号量 sem_post/sem_wait 一次改 一个， +1/-1， sysv 的 semop 修改一个集合, +n/-n
+posix 不提高 set_zero 这样的操作， 没有提供 undo 操作
+posix 性能更好， 只要不是真的有两个线程争夺一把 lock， 修改 sem 只是用户态操作， sysv 每次都要切换到内核态
+
+有名信号量(不相干进程间同步): sem_open/sem_close/sem_unlink
+无名信号量(基于内存， 用于线程同步): sem_init/sem_destroy
+通用操作: sem_wait/sem_trywait/sem_timedwait/sem_post/sem_getvalue
+

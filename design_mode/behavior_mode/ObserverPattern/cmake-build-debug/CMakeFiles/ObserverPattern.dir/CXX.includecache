@@ -1,0 +1,20 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/mnt/d/Documents/CLionProjects/ObserverPattern/Async/async1.h
+
+/mnt/d/Documents/CLionProjects/ObserverPattern/Sync/sync.h
+
+/mnt/d/Documents/CLionProjects/ObserverPattern/main.cpp
+Sync/sync.h
+/mnt/d/Documents/CLionProjects/ObserverPattern/Sync/sync.h
+Async/async1.h
+/mnt/d/Documents/CLionProjects/ObserverPattern/Async/async1.h
+fmt/format.h
+-
+

@@ -1,0 +1,294 @@
+
+pid 分配延迟重用 位图 0 可用 1 不可用
+last_pid = 上次分配的 pid, 从 last_pid + 1 开始分配
+位图最后一位不可用， 回滚到起始位置（前300保留， RESERVED_PIDS）
+
+sysctl kernel.max_pid 最大pid
+实际最大， 硬上限 64位 4M， 32 位 32K
+
+PID 进程id      pid_t getpid()
+PPID 父进程id   pid_t getppid()
+PGID 进程族id   pid_t getpgrp()
+PSID 会话id    pid_t getsid()
+
+ps axjf
+
+设置组id        int setpgid(pid_t pid, pid_t pgrp)
+pid=0表示当前进程， pid 必须是当前进程或者当前进程的子进程
+子进程 exec 之后不能调用 setpgid， 否则 EACCESS
+进程在进程组之间移动， 必须在同一个 session 里面
+
+ps aux | grep python
+
+bash  -- fork & exec --> ps aux
+      -- fork & exec --> grep python
+
+bash 自成一组， pid = pgid
+ps 和 grep 是同一个进程组， 组长是 ps, pgid == ps 的 pid
+
+信号发给组长， 组长转发给组员
+
+子进程需要修改组id时， fork 后父进程 setpgid() 修改子进程 gid
+子进程自己也要调用一次 setpgid()， 其中一次是多余的， 因为没办法保证 fork 后父子进程谁先被调度
+
+strace -f -p pid 参看调用情况
+
+pid_t setsid()  进程组的组长不能调用， 组长跑路组员怎么办？
+组员调用时， 创建一个新 session， sid=组员pid， 在里面创建一个进程组， gid=组员pid(组员变成组长)， 
+如果组员之前是连接了 tty， tty 会断开， 父进程变成 init
+从此该组员变成守护进程， 终端退出还能运行
+
+
+pid_t pid = fork()
+if(pid < 0)
+{
+    // 异常， pid == -1, 必须处理
+    // kill(-1, 9)  杀掉除了 init 外所有进程
+}
+else if(pid == 0)
+{
+    // 子进程
+}
+else
+{
+    // 父进程
+}
+
+linux 2.6.32 开始， 父进程优先被调度， 因为他在 CPU 里活跃， 内存还在 MMU 的缓冲器 TLB 中， 这样效率高
+linux 2.6.24 开始所用 CFS 进程调度， /proc/sys/kernel/sched_child_runs_first = 0 默认父进程优先被调度 1 子进程优先
+
+fork 后， 子进程完全拷贝了父进程的堆内存、栈内存、代码段， 堆上的东西、全局变量、指针指向的内存， 父进程修改了， 子进程不变！
+
+子进程 exec 后， 需要清空 copy 的堆栈代码段， find_elf_handler, 构造新进程空间， 修改寄存器struct跳转到新程序
+白 copy了！ 所以 linux 引入了 COW， 只复制页表项， 设置写保护， 任意一方修改导致 page fault， 内核跳到 do_wp_page() 
+真正的拷贝物理内存， 同时去除写保护
+
+linux 使用 4 级页表管理内存  PGD  PUD  PMD  PTE  offset  -> 物理地址
+fork() -> do_fork() -> copy_process() -> copy_mm() -> dup_mm() -> dup_mmap() ->
+copy_page_range() -> copy_pud_range() -> copy_pmd_range() -> copy_pte_range() -> copy_one_pte()
+
+if(is_cow_mapping(vm_flags))
+{
+    ptep_set_wrprotect(...)
+}
+
+
+fork() 后 fdtable 是共用的， 共享 offset
+open 时记得 O_CLOSEXEC/FD_CLOSEXEC， 子进程 exec 时自动关闭父进程打开的 fd， 防止子进程越权读取数据
+
+struct task_struct
+{
+    struct files_struct* files;  // copy_process() -> copy_files()
+}
+
+static int copy_files(...)
+{
+    ...
+    struct files_struct* oldf, *newf;
+    oldf = current->files;
+    // vfor()  pthread_create() 只会增加引用计数， 共用父进程的 files 结构 
+    if(clone_flags & CLONE_FILES)
+    {
+        atomic_inc(&oldf->count)
+        go out;
+    }
+
+    // fork() 要拷贝 fdtable， 里面是 file*
+    int error = 0;
+    newf = dup_fd(oldf, &error);
+    ...
+}
+
+dup_fd() 给子进程分配 files_struct 然后赋值
+
+struct files_struct
+{
+    ...
+    struct fdtable __rcu *fdt;  // 检查父进程打开的文件个数在决定指向 **fd 还是重新开辟内存 
+    struct fdtable fdtable;
+    struct file __rcu **fd;  // 指向自带的 fd_array
+    int next_fd; // 下一个可用 fd
+    
+    // 一般情况下， 进程不会打开很多文件， 所以 files_struct 自带了
+    // 下面的位图和 fd_array, 应付大多数情况， 不够采取申请内存 
+    struct embedded_fd_set close_on_exec_init;
+    struct embedded_fd_set open_fds_init;
+    struct file __rcu *fd_array[NR_OPEN_DEFAULT]; // long, 64 位
+};
+
+struct embedded_fd_set
+{
+    unsigned long fds_bits[1];  // 64 位
+}
+
+如果自带的位图和fd_array足够容纳父进程的打开文件， 则copy父进程的两个位图， 和打开文件的指针， 文件
+引用计数+1, 如果不够就 alloc_fdtable（） 分配一个足够大的 fdtable 再 copy 指针 
+
+进程打开的 fd 在 /proc/PID/fd
+
+struct file {
+    fmode_t f_mode;
+    loff_t f_pos;  // 所以子进程共享父进程的文件偏移量
+}
+
+
+vfork() 子进程导致父进程挂起， 除非子进程exit或者execve才会唤起父进程
+子进程共享了父进程的所有内存，包括栈地址， 直至子进程使用execve启动新的应用程序为止
+子进程不应该使用return返回调用者，或者使用exit()退出，但是它可以使用_exit()函数来退出
+因为父子进程内存共享，子进程退出main导致调用栈被销毁
+
+================================================================
+
+daemon 进程创建： double-fork 
+
+1.fork（） 然后父进程退出： 父进程可能是组长， 无法 setsid()
+2.子进程 chdir("/"): 子进程继承父进程的工作路径， 如果占用其他文件系统， 将导致其无法 umount
+3.子进程 setsid(): 创建新的 session, 脱离终端控制， 忽略终端发来的信号
+4.子进程 umask(0): 防止父进程 shell 的 umask 影响子进程
+5.子进程 fork()， 子进程退出， 孙子继续运行： 防止 daemon 自动打开控制终端(daemon是首进程， 具体取决于系统实现)
+6.孙子进程 dup2() stdin stdout stderr 到 /dev/null， 因为它们指向控制终端（已经不存在）, 防止操作 0 1 2 报错
+
+最简单的方法: int daemon(int nochdir, int noclose)
+nochdir=1： 保持当前工作目录， 否则切到 /
+noclose=1: 保持 stdin stdout stdout 不变， 否则重定向到 /dev/null
+
+一般情况下， ret = daemon(0, 0); 成功返回 0， 失败返回 -1, 设置 errno
+glibc 的 daemon 没有第二次 fork()
+
+================================================================
+
+exit() 来自 <stdlib.h>  _exit() 来自 <unistd.h>
+
+_exit(int status), 父进程 wait() 得到 status, 注意只有低 8 位有用, exit(-1), echo $? = 255
+0 正常      1-125 异常       126 命令无法执行       127 not found        128-255 被信号杀死
+
+_IONBF 无缓冲， perror
+_IOLBF 行缓冲, stdin stdout， \n 导致 flush
+_IOFBF 全缓冲， buf 满才 flush, buf 默认 8192 字节
+
+main return 给上级调用者， 作为 exit() 的参数
+
+调用链: 
+
+exit() -> atexit() 清理 -> flush, close file, rm tmpfile ->
+                                                          /
+                     -------------------------------------
+                    /           
+_exit() -> exit_group() ---（单个线程）------> do_exit() -> exit_notify() -(父进程)-> forget_original_parent() --> find_new_reaper()
+                    \                         /                      \                
+                      -> zap_other_threads() -                          --（线程组组长）--> autoreap=thread_group_empty(tsk) && do_notify_parent()
+                       多线程时通知其他兄弟                                \                   组长通知父进程收尸
+                                                                         \
+                                                                           - (普通线程) -> autoreap=true 
+
+
+forget_original_parent（） 为子进程找继父， 找不到就托孤给 init, find_new_reaper() 用来找继父
+reaper = find_new_reaper(father)
+然后遍历 &tsk->children 修改所有子进程的父亲 t->real_parent = t->parent = reaper
+父亲告诉孩子，自己快挂了， group_send_sig_info(t->pdeath_signal, SEND_SIG_NOINFO, t), 可以使用 prctl() 设置父死时发送的信号
+
+组长通知父进程：
+do_notify_parent()
+{
+    ...
+    psig = tsk->parent->sighand;
+    // 如果父进程忽略 SIGCHLD 信号
+    if(!tsk->ptrace && sig == SIGCHLD && 
+    (psig->action[SIGCHLD-1].sa.sa_handler == SIG_IGN) || (psig->action[SIGCHLD-1].sa.sa_flags & SA_NOCLDWAIT))
+    {
+        autoreap = true;  // 可以直接 release_task()
+        if(psig->action[SIGCHLD-1].sa.sa_handler == SIG_IGN)
+            sig = 0;  // 后面不发信号了
+    }
+    if(valid_signal(sig) && sig) // 信号有效
+    {
+        __group_send_sig_info(sig, &info, tsk->parent);  // 通过信号通知父进程
+    }
+
+    // 把当前进程挂到 parent->signal->wait_chldexit 等待队列队头
+    // 唤醒 wait 中的父进程， 如果父进程没有 wait， wait队列为空， 则毫无影响
+    // 父进程被唤醒， do_wait() -> 
+    __wake_up_parent(tsk, tsk->parent); 
+    return autoreap;  // 如果是 true, exit_notify() -> release_task() 释放资源
+}
+
+
+SIGCHLD 信号不可靠， 信号不排队， hander 执行可能有漏网之鱼
+
+while(waitpid(-1, &status, WNOHUANG) > 0){
+    // 处理
+    continue;
+} // waitpid 可能失败， 改变 errno， 进入 handler 前注意保存全局 errno
+
+
+
+================================================================================
+
+僵尸进程已经释放其他资源， 仅保留 task_struct 和 内核栈， 记录了退出原因， 生命周期中 sys/usr CPU 时间， 驻留集大小， 各种中断次数， 上下文切换次数
+父进程如果不想收尸： signal(SIGCHLD, SIG_IGN) 或者 sigaction SA_NOCLDWAIT, 子进程结束直接 release_task() 自行了断
+
+<sys/wait.h>: pid_wait(int* status)
+
+成功返回被收尸子进程的 pid， 错误 -1 设置 errno, ECHID 无子进程需要等待， EINTR 被信号中断, 
+wait() 不能保证多个子进程的处理顺序， 不能获知子进程 SIGSTOP SIGCONT 状态
+
+pid_t re_wait(int* status)
+{
+    int ret;
+    while((ret = wait(status)) == -1 && (errno == EINTR)); // 被中断了就继续 wait
+    return ret;
+}
+
+while((chid_pid = re_wait(NULL) != -1) continue;
+if(errno != ECHID)
+{
+    // 出问题了
+}
+
+
+<sys/wait.h>: waitpid(pid_t pid, int* status, int options);
+pid>0, 精确 wait 某个子进程
+pid=0, wait 同组的其他子进程， 因为子进程可以换组
+pid=-1, wait 任意子进程， wait(-1, &status, 0) == wait(&status)
+pid<-1, wait gid==|pid| 的子进程（组长)
+
+options是bitmask
+options =| WUNTRACE, 关注因为 SIGSTOP 停止的子进程
+options =| WCONTINUED, 关注因为 SIGCONT resume 的子进程
+options =| WNOHUANG, 子进程状态没变， 不阻塞直接返回0, 如果 pid 对应的进程不存在， 返回 -1 设置errno
+
+
+调用链: wait()/waitpid() -> wait4() -> do_wait() -> do_wait_thread()
+
+// 下面是 wait4 系统调用
+struct wait_opts wo;
+...
+wo.wo_type = type(根据pid正负01判断出来的wait类型)
+wo.wo_flags = options | WEXITED  // 子进程退出事件总会关注
+...
+do_wait(&wo)
+
+掉用 do_wait() 把 wo->child_wait 挂入等待队列 current->signal->chldexit， 遍历子进程列表
+
+do_wait_thread(wait_opts *wo, task_struct* tsk)
+{
+    struct task_struct *p;
+    list_for_each_entry(p, &tsk->children /*子进程链表头节点*/, sibling)
+    {
+        int ret = wait_consider_task(wo, 0, p);
+        if (ret) return ret;
+    }
+    return 0;
+}
+
+不关注的子进程使用 eligible_pid(wo, tsk) 过滤
+
+
+上面的 status 保存了退出状态， 不同死因 高8位低8位含义不同， 使用宏来判断
+WIFEXITED（status) 正常退出
+WEXITSTATUS(status) 获取正常退出状态
+...  // see P130
+
+int waitid(idtype_t idtype, id_t id, siginfo_t* info, int options)
+设计更好， 但不是普遍使用， 可以不关注子进程终止事件
+

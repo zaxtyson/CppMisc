@@ -1,0 +1,12 @@
+
+stdlib.h: int system(const char *cmd)
+
+system() -> shell -> new cmd
+
+system(NULL) =1有shell可用， =0无shell可用
+
+signal(SIGCHID, SIG_IGN) 再调用 system() 返回必为 -1， errno=ECHID, system 内部调用 waitpid 导致
+
+正常情况， system() 返回子 shell 的终止状态
+
+调用 system 的进程应该忽略 SIGINT 和 SIGQUIT， 它应该交给内部子进程响应

@@ -1,0 +1,105 @@
+
+execve 家族有 6 个函数， l = list, v = vector, p = 自动搜索 PATH， e = 使用指定环境变量
+
+execl   execlp  execle
+execv   execvp  execve
+
+int execl(const char * path, const char *arg, ...);
+int execv(const char * path, const char * argv[]);
+int execle(const char * path, const char *arg, ...， char* const envp[]);
+int execve(const char * path, const char * argv[], char* const envp[]);
+
+exec 后， 进程的所有文本段被抛弃， 调用 exec 之前设置的 signal handler 将被修改为 SIG_DFL
+特例： SUSv3 未定义， linux 保留 SIG_IGN
+exec 后， 各种id不变、 alarm 信号不变、 umask 不变、控制终端、cwd不变、已用时间，资源限制、nice不变
+
+fork()后，子进程times初始化为0,exec()不会， fork后alarm和其他定时器都不继承， 除了文件锁，其他锁都不继承
+
+
+execve() -> do_execve(getname(filename), argv, envp) -> do_execveat_common(AT_FDCWD, filename, argv, envp, 0)
+-> bprm_execve() -> exec_binprm() -> search_binary_handler() -> load_binary() 
+
+/fs/binfmt_xxx.c 定义了 fmt loader
+/fs/binfmt_misc.c 提供了用户扩展可执行程序的方法
+echo ":Name:Type [M|E]:Offset:Magic String:Interpreter Path:Flags" > /proc/sys/fs/binfmt_misc/register
+
+ 
+ https://elixir.bootlin.com/linux/latest/source/fs/exec.c#L1702
+
+static int do_execveat_common(int fd, struct filename *filename,
+			      struct user_arg_ptr argv,
+			      struct user_arg_ptr envp,
+			      int flags)
+{
+	struct linux_binprm *bprm;
+    bprm = alloc_bprm(fd, filename);
+
+    retval = count(argv, MAX_ARG_STRINGS);
+    bprm->argc = retval;
+    
+    retval = count(envp, MAX_ARG_STRINGS);
+    bprm->envc = retval;
+
+    retval = bprm_stack_limits(bprm);
+
+    retval = copy_string_kernel(bprm->filename, bprm);
+	retval = copy_strings(bprm->envc, envp, bprm);
+	retval = copy_strings(bprm->argc, argv, bprm);
+    
+    bprm->exec = bprm->p;
+	retval = bprm_execve(bprm, fd, filename, flags);
+}
+
+
+
+/*
+ * sys_execve() executes a new program.
+ */
+static int bprm_execve(struct linux_binprm *bprm,
+		       int fd, struct filename *filename, int flags)
+{
+	struct file *file;
+	file = do_open_execat(fd, filename, flags);
+
+    // 调度负载最小的cpu
+	sched_exec();
+
+	bprm->file = file;
+
+	retval = exec_binprm(bprm);
+}
+
+
+
+static int search_binary_handler(struct linux_binprm *bprm)
+{
+	bool need_retry = IS_ENABLED(CONFIG_MODULES);
+	struct linux_binfmt *fmt;
+	retval = prepare_binprm(bprm);
+	retval = security_bprm_check(bprm);
+
+ retry:
+ // 遍历 formats 链表， 查找可以处理的 loader
+	list_for_each_entry(fmt, &formats, lh) {
+		if (!try_module_get(fmt->module))
+			continue;
+
+		retval = fmt->load_binary(bprm);  // 使用能够处理二进制格式的 loader 加载二进制文件
+
+		put_binfmt(fmt);
+		if (bprm->point_of_no_return || (retval != -ENOEXEC)) {
+			read_unlock(&binfmt_lock);
+			return retval;
+		}
+	}
+
+	if (need_retry) {
+        // 查找可动态安装的fmt loader
+		if (request_module("binfmt-%04x", *(ushort *)(bprm->buf + 2)) < 0)
+			return retval;
+		need_retry = false;
+		goto retry;
+	}
+
+	return retval;
+}

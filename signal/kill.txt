@@ -1,0 +1,23 @@
+
+int kill(pid_t pid, int sig);  用于发送信号， 成功返回 0, 失败-1设置errno
+pid>0: 给对于 pid 的进程发送信号
+pid=0: 给调用进程的组员进程发送信号
+pid=-1:发给除了 init 和自己以外的所以进程
+pid<-1:给进程组 -pid 发送信号
+
+
+给线程发送信号
+int tkill(int tid, int sig);   过时
+int tgkill(int tgid, int tid, int sig)  更安全， 防止 tid 分配给不相干线程导致误杀
+
+glibc 没封装， 得这样用
+syscall(SYS_tkill, tid, sig);
+syscall(SYS_tgkill, tgid, tid, sig);
+
+
+int raise(int sig)
+相当于 kill(getpid(), sig)
+或者 pthread_kill(pthread_self(), sig)
+sighandler return 时 raise 才返回
+
+

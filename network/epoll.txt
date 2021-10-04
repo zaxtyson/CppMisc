@@ -1,0 +1,47 @@
+
+/fs/select.c
+
+
+select/poll 差不多， 轮询, 用户态 -> 内核态 -> 用户态
+
+https://elixir.bootlin.com/linux/v5.3.18/source/fs/select.c#L722
+
+select() -> kern_select() -> copy_from_user() -> core_sys_select() -> do_select() ->
+
+
+
+https://elixir.bootlin.com/linux/v5.3.18/source/fs/select.c#L1047
+
+poll() -> do_sys_poll() -> copy_from_user() -> __put_user()
+
+epoll 底层红黑树， 多线程所用一个 epoll 要加锁， 此时可以用 select
+
+bio r/w 阻塞到数据准备好
+nio r/w 立刻返回 -1
+aio 绑定回调， 可读可写时 callback()
+
+linux aio 换了 3 个版本， 磁盘读写可以用， 网络 io 回调扛不住
+需要从内核回到用户态， 把数据拷出去， 中断非常频繁
+
+纯 epoll:
+
+while(1)
+{
+    int nready = epoll_wait(epfd, events, length, -1);
+    for(int i = 0; i < nready; i++)
+    {
+        if(epollin)
+        {
+
+        }
+        else if(epollout)
+        {
+
+        }
+    }
+}
+
+reactor 为每一个 io 设置可读/可写/出错回调， 设置读写 buffer
+只要把数据放到 buffer 就会自动发
+
+

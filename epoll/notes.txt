@@ -1,0 +1,34 @@
+// 1.单线程 reactor  -->  libevent, readis
+
+// 2.多线程 reactor
+//  1) 多个 worker
+//  2) 一个 master 线程处理 accept + 多个 worker 线程 epoll_wait
+// 每个线程一个 epoll_wait 生产者消费者模型 --> memcached
+// 即时通讯服务器, 客户端前后 session 数据是相关的
+// 客户端断开连接后下次可能 fd 在另一个线程处理, session 状态(运行时信息)需要共享
+// 这些信息不要放到 sockitem 里, 最好分离出去(放缓存里), worker 保持无状态, 只处理数据, 不保存数据
+
+// 3.多进程 reactor  --> nginx
+// 多进程即时通讯, 同样的状态保存到缓存去, 别放在进程内部
+// 多进程监听同一个端口 listen 后 fork, 子进程继承 listen_fd, 但是会出现惊群问题
+// epoll_create 前 fork, 子进程使用自己的 epoll, 多棵红黑树, 之后 fork 就共享一个 epoll
+// 惊群解决, 保证同一时刻 fd 只能加入一个进程的 epoll, 共享内存加锁
+// SO_REUSEPORT
+
+// mainloop, eventloop
+// epoll 对 io 进行管理, reactor 是对事件进行处理
+struct reactor
+{
+    int ep_fd;                       // epoll 对象的 fd
+    struct epoll_event events[1024]; // epoll_wait 就绪队列
+};
+
+// 服务器端一个 socket 对应一个 socketitem
+struct sockitem
+{
+    int sock_fd;                                    // socket 的 fd
+    int (*callback)(int fd, int events, void *arg); // 处理该 socket 事件的回调函数
+    char recv_buffer[1024];                         // 接收缓冲区, tcp 粘包时, 半包数据可以存在这
+    char send_buffer[1024];
+    // 其它 session 相关的内容别放这
+};

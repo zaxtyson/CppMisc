@@ -1,0 +1,39 @@
+
+SMP 进程被调度不一定在同一个 CPU 上
+
+sched.h:
+    int sched_setaffinity(pid_t pid, size_t cpuset_size, cpu_set_t *mask)
+    int sched_getaffinity(pid_t pid, size_t cpuset_size, cpu_set_t *mask)
+
+void CPU_ZERO(cpu_set_t *set)
+void CPU_SET(int cpu, cpu_set_t* set)
+void CPU_CLR(int cpu, cpu_set_t* set)
+int CPU_ISSET(int cpu, cpu_set_t* set)
+
+ps -p pid -o pid,psr,cmd  PSR 表示进程所在的 CPU
+
+nproc 参看 CPU 数量
+lscpu 查看 CPU 信息
+taskset -p pid 参看进程的 CPU 掩码
+taskset -pc 0,2,5-10 pid 允许进程在 0,2,5,6,7,8,9,10号cpu上运行 
+
+cpu_set_t set;
+CPU_ZERO(&set)
+CPU_SET(1, &set);
+sched_setaffinity(pid, sizeof(set), &set);
+
+进程描述 cpumask_t cpus_allowed;
+
+https://elixir.bootlin.com/linux/v5.3.18/source/kernel/sched/core.c#L1984
+
+select_task_rq() 根据允许的 cpumask 调度
+
+cpu control group, /dev/cpuset/xxx
+mkdir /dev/cpuset
+mount -t cgroup -o cpuset none /dev/cpuset
+mkdir /dev/cpuset/group1
+echo "1" > /dev/cpuset/group1/cpuset.cpus
+echo "0" > /dev/cpuset/group1/cpuset.mems
+echo $$ > /dev/cpuset/group1/tasks
+
+

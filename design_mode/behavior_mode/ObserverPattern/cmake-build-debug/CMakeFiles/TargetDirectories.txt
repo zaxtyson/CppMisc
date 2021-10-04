@@ -1,0 +1,9 @@
+/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/CMakeFiles/edit_cache.dir
+/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/CMakeFiles/ObserverPattern.dir
+/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/Sync/CMakeFiles/rebuild_cache.dir
+/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/Sync/CMakeFiles/edit_cache.dir
+/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/Sync/CMakeFiles/sync.dir
+/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/Async/CMakeFiles/rebuild_cache.dir
+/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/Async/CMakeFiles/edit_cache.dir
+/mnt/d/Documents/CLionProjects/ObserverPattern/cmake-build-debug/Async/CMakeFiles/async1.dir

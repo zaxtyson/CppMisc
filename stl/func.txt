@@ -1,0 +1,15 @@
+list.remove(begin(), end(), val);  remove_if(begin(), end(), predicate) 直接删除
+std::remove()  remove_if()  只是调整 iterator， 还需 x.erase(iter, x.end())
+
+for(auto iter = x.begin(); iter != x.end();)
+{
+    if(*iter == val)
+    {
+        iter = x.erase(iter);  // 迭代器失效
+        // x.erase(iter++);  // before c++11
+    }
+    else
+    {
+        iter++;
+    }
+}

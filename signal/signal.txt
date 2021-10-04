@@ -1,0 +1,70 @@
+
+信号是软中断， 处理异步事件，是进程间通信的手段
+
+硬件异常： 
+SIGBUS 总线错误， 内存未对齐， mmap 映射的文件被截短后还去访问后面的内存
+SIGFPE 算数错误， 整数/0
+SIGILL 机器指令非法， 函数地址错误， 旧机器执行新机器的指令集
+SIGSEGV 段错误， 访问的内存地址非法
+
+程序终止， 产生 coredump
+
+控制进程与终端断开， 内核发送 SIGHUP 给 shell， 前台后台进程组都会收到， 然后退出
+cmd &  放入后台运行; 不能摆脱 SIGHUP
+nohup cmd 忽略 SIGHUP 运行， stdin > /dev/null, stdout, stderr > nohup.out
+setsid cmd 再开一个会话， init 托管
+
+jobs -l
+disown %[job_id] 
+
+screen
+
+SIGSTOP 确保停止， 不可忽略， handler 不可重写
+SIGKILL 强制杀死， 不可忽略
+
+kill -l 查看所有信号
+man 7 signal
+
+[1, 31] 不可靠信号， 可能丢失， 继承自 unix， 使用位图判断是否处于 pending 状态， 是就丢弃
+[SIGRTMIN（34）, SIGRTMAX] 新增的实时信号， 有队列维护后来的信号， 可靠但 pending signals 数量有限制， ulimit -i 查看
+32, 33 被 glibc 内部的线程库 NPTL 征用了
+
+typedef void(*sighandler_t)(int)
+syscall(SYS_signal, signo, func)  // 系统调用
+sighandler_t signal(int signum, sighandler_t handler)  // glibc
+sighandler_t sysv_signal(int signum, sighandler_t handler) // System V
+sighandler_t bsd_signal(int signum, sighandler_t handler)  // BSD
+
+SA_ONESHOT: sighandler 触发一次后被设置为 SIG_DFL
+SA_NODEFER: 不要将当前信号加入阻塞信号集， sighandler 执行时可能被再次打断
+SA_RESTART: 系统调用过程中被信号打断， sighandler 处理完成重启系统调用， 而非返回 -1,errno=EINTR
+设置 SA_RESTART 有效: open read write wait相关 没设置超时的socket函数
+设置 SA_RESTART 无效： select/poll/epoll相关， sleep 相关， 设置了定时器的socket相关函数， man 7 signal
+
+SystemV/syscall: ONESHOT, 执行期间不屏蔽自身， sighandler会重入， 不会 RESTART 系统调用
+BSD/glibc: 不会 ONESHOT， 后来的**相同**信号被屏蔽， 自动 RESTART 系统调用
+
+struct sigpending{
+    struct list_head list;  // struct sigqueue list
+    sigset_t signal;  // unsigned long sig[1] 位图
+};
+
+
+https://elixir.bootlin.com/linux/v5.3.18/source/arch/x86/include/uapi/asm/signal.h#L103
+
+struct sigaction {
+	union {
+	  __sighandler_t _sa_handler;
+	  void (*_sa_sigaction)(int, struct siginfo *, void *);
+	} _u;
+	sigset_t sa_mask;  // 屏蔽信号集， SIGKILL SIGSTOP 不能屏蔽
+	unsigned long sa_flags;
+	void (*sa_restorer)(void);
+};
+
+
+
+
+
+
+

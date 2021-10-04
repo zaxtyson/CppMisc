@@ -1,0 +1,1 @@
+/usr/bin/c++ -fPIC -g  -shared -Wl,-soname,libasync1.so -o ../dist/libasync1.so CMakeFiles/async1.dir/async1.cpp.o 
